@@ -1,13 +1,4 @@
-#! /usr/bin/env bash
-
-#PBS -N prima_<EXPID>_<LEG>
-#PBS -q ns
-#PBS -l EC_billing_account=<ACCOUNT>
-#PBS -l walltime=14:00:00
-#PBS -j oe
-#PBS -l EC_ecfs=1
-#PBS -o log/bck_prmvr_<EXPID>_<LEG>.out
-#PBS -m abe
+#!/usr/bin/env bash
 
  #######################################################################
  # Script that stores output and restart of one leg of a run.          #
@@ -21,27 +12,33 @@
  # - do not use the tar_restart option with HIRES runs                 #
  #######################################################################
 
-set -e
+set -xvue
 
-cd $PBS_O_WORKDIR
-
-mkdir log || true
-
-exp=<EXPID>
-leg=<LEG>
+exp=%EXPID%
+leg=%CHUNK%
+start_date=%SDATE%
+member=%MEMBER%
+Chunk_start_date=%Chunk_START_DATE%
+Chunk_end_date=%Chunk_END_DATE%
+fdate="${Chunk_start_date}-${Chunk_end_date}"
 
 ######################### Hardcoded options #########################
-is_last=0
+[ "%Chunk_LAST%" = TRUE ] && is_last=1 || is_last=0
 
 do_ifs_output=1
-do_nemo_output=1
+do_ifs_restart=1
+[ "%IFS_resolution%" = T255L91 ] && tar_ifs_restart=1 || tar_ifs_restart=0
 
-do_restart=1
-tar_restart=0
+do_nemo_output=1
+do_nemo_restart=1
+tar_nemo_restart=1
+
+do_oasis_restart=1
+tar_oasis_restart=1
 
 # IN & OUT top dirs
-runs_dir="${SCRATCH}/ECEARTH-RUNS/"
-ecfs_dir="ec:/${USER}/ECEARTH-RUNS/${exp}"
+runs_dir="${SCRATCH}"
+ecfs_dir="ec:/c3m/exp/${exp}"
 
 #####################################################################
 
@@ -52,14 +49,12 @@ legnbP1=$(printf %03d ${nextleg})
 do_log=${is_last}
 
 
-# All commands to be executed from the run top directory
-cd ${runs_dir}/${exp}
+# All command to be executed from the run top directory
+cd ${runs_dir}/${exp}/${start_date}/${member}/runtime
 
-##############
-# Utilities  #
-##############
 bckp_emcp () {
-    emv -e $1  ${ecfs_dir}/$1
+    #emv -e $1  ${ecfs_dir}/$1
+    ecp -n $1  ${ecfs_dir}/$1
     echmod 444 ${ecfs_dir}/$1
 }
 
@@ -84,8 +79,10 @@ split_move () {
 ############
 # RESTARTS #
 ############
-if (( do_restart ))
+
+if (( do_ifs_restart ))
 then
+
     if [[ -d restart/ifs/${legnbP1} ]] || (( is_last ))
     then
         echo; echo " *** IFS RESTART ***"; echo
@@ -98,14 +95,16 @@ then
             for f in srf* ece.info rcf
             do
                 if [[ -f $f ]]; then
-                    emv -e $f ${ecfs_dir}/restart/ifs/${legnbP1}/$f
+                    #emv -e $f ${ecfs_dir}/restart/ifs/${legnbP1}/$f
+                    ecp -n $f ${ecfs_dir}/restart/ifs/${legnbP1}/$f
                     echmod 444 ${ecfs_dir}/restart/ifs/${legnbP1}/$f
                 fi
             done
         else
-            if (( tar_restart ))
+            if (( tar_ifs_restart ))
             then 
-                f=$(echo restart/ifs/${legnbP1} | sed "s|/|.|g").tar
+                #f=$(echo restart/ifs/${legnbP1} | sed "s|/|.|g").tar
+                f=$(echo restart/ifs/${legnbP1}).tar
                 tar -cf $f restart/ifs/${legnbP1}
                 bckp_emcp $f
             else
@@ -116,7 +115,11 @@ then
             fi
         fi
     fi
- 
+fi
+
+if (( do_nemo_restart ))
+then
+
     if [[ -d restart/nemo/${legnbP1} ]] || (( is_last ))
     then
         echo; echo " *** NEMO RESTART ***"; echo
@@ -129,14 +132,16 @@ then
             for f in ${exp}_????????_restart_oce_????.nc ${exp}_????????_restart_ice_????.nc
             do
                 if [[ -f $f ]]; then
-                    emv -e $f ${ecfs_dir}/restart/nemo/${legnbP1}/$f
+                    #emv -e $f ${ecfs_dir}/restart/nemo/${legnbP1}/$f
+                    ecp -n $f ${ecfs_dir}/restart/nemo/${legnbP1}/$f
                     echmod 444 ${ecfs_dir}/restart/nemo/${legnbP1}/$f
                 fi
             done
         else
-            if (( tar_restart ))
+            if (( tar_nemo_restart ))
             then 
-                f=$(echo restart/nemo/${legnbP1} | sed "s|/|.|g").tar
+                #f=$(echo restart/nemo/${legnbP1} | sed "s|/|.|g").tar
+                f=$(echo restart/nemo/${legnbP1}).tar
                 tar -cf $f restart/nemo/${legnbP1}
                 bckp_emcp $f
             else
@@ -147,6 +152,10 @@ then
             fi
         fi
     fi
+fi
+
+if (( do_oasis_restart ))
+then
 
     if [[ -d restart/oasis/${legnbP1} ]]
     then
@@ -155,9 +164,10 @@ then
         emkdir -p ${ecfs_dir}/restart/oasis/${legnbP1}
         echmod 755 ${ecfs_dir}/restart/oasis/${legnbP1}
 
-        if (( tar_restart ))
+        if (( tar_oasis_restart ))
         then 
-            f=$(echo restart/oasis/${legnbP1} | sed "s|/|.|g").tar
+            #f=$(echo restart/oasis/${legnbP1} | sed "s|/|.|g").tar
+            f=$(echo restart/oasis/${legnbP1}).tar
             tar -cf $f restart/oasis/${legnbP1}
             bckp_emcp $f
         else
@@ -169,9 +179,11 @@ then
     fi
 fi
 
+
 ###############
 # NEMO output #
 ###############
+
 if (( do_nemo_output ))
 then
     echo; echo " *** NEMO OUTPUT ***"; echo
@@ -194,6 +206,7 @@ fi
 ##############
 # IFS output #
 ##############
+
 if (( do_ifs_output ))
 then
     echo; echo " *** IFS OUTPUT ***"; echo
